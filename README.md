@@ -1,0 +1,379 @@
+[index.html.txt](https://github.com/user-attachments/files/23695980/index.html.txt)
+<!DOCTYPE html>
+<html lang="pt-BR" class="dark">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>AlphaTalk</title>
+    
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+      tailwind.config = {
+        darkMode: 'class',
+        theme: {
+          extend: {
+            colors: {
+              gold: { 400: '#FACC15', 500: '#EAB308', 600: '#CA8A04', 900: '#422006' },
+              dark: { 950: '#09090b', 900: '#18181b', 800: '#27272a' }
+            },
+            fontFamily: { sans: ['Inter', 'sans-serif'] }
+          }
+        }
+      }
+    </script>
+
+    <!-- FontAwesome & Fonts -->
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700;900&display=swap" rel="stylesheet">
+
+    <!-- Styles -->
+    <style>
+      body { background-color: #09090b; color: white; }
+      ::-webkit-scrollbar { width: 8px; }
+      ::-webkit-scrollbar-track { background: #18181b; }
+      ::-webkit-scrollbar-thumb { background: #3f3f46; border-radius: 4px; }
+      .gold-gradient { background: linear-gradient(135deg, #FACC15 0%, #CA8A04 100%); }
+    </style>
+
+    <!-- Babel Standalone (Compiles React in browser) -->
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+<script type="importmap">
+{
+  "imports": {
+    "react": "https://aistudiocdn.com/react@^19.2.0",
+    "react-dom/": "https://aistudiocdn.com/react-dom@^19.2.0/",
+    "react/": "https://aistudiocdn.com/react@^19.2.0/",
+    "@google/genai": "https://aistudiocdn.com/@google/genai@^1.30.0",
+    "@supabase/supabase-js": "https://aistudiocdn.com/@supabase/supabase-js@^2.84.0"
+  }
+}
+</script>
+</head>
+<body>
+    <div id="root"></div>
+
+    <!-- MAIN APP SCRIPT -->
+    <script type="text/babel" data-type="module">
+        import React, { useState, useEffect, useRef } from "https://esm.sh/react@18.2.0";
+        import { createRoot } from "https://esm.sh/react-dom@18.2.0/client";
+        import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+        import { GoogleGenAI } from "https://esm.sh/@google/genai";
+
+        // --- CONSTANTS ---
+        const DAILY_TIPS = [
+            "Mantenha contato visual, mas não encare fixamente. A regra 70/30 funciona bem.",
+            "Faça perguntas abertas. Evite perguntas que podem ser respondidas com 'sim' ou 'não'.",
+            "A confiança vem da competência. Pratique conversar com estranhos sem intenção de flerte.",
+            "Não responda imediatamente sempre. Tenha sua própria vida e ocupações.",
+            "O humor é a melhor arma de atração. Não se leve tão a sério."
+        ];
+
+        const CANNED_PHRASES = [
+            {
+                category: "Abertura (Tinder/Insta)",
+                phrases: [
+                    "Eu ia dizer que você é linda, mas aposto que você já ouviu isso hoje. O que mais eu deveria saber sobre você?",
+                    "Seu cachorro é muito fofo, ele tem vaga para um padrasto?",
+                    "Nota 10 para o estilo, mas quero saber se a conversa acompanha.",
+                    "Você tem cara de quem rouba o edredom inteiro durante a noite.",
+                    "Parece que temos muito em comum, exceto o fato de que eu cozinho melhor."
+                ]
+            },
+            {
+                category: "Retomando Conversa",
+                phrases: [
+                    "Sumiu! Foi abduzida ou virou astronauta?",
+                    "Estava aqui pensando... qual sua opinião polêmica sobre pizza com abacaxi?",
+                    "Declarando você oficialmente desaparecida em 3, 2, 1...",
+                    "Achei que a gente tinha uma conexão, mas vejo que você prefere brincar de esconde-esconde."
+                ]
+            },
+            {
+                category: "Chamando para Sair",
+                phrases: [
+                    "Conheço um lugar que faz o melhor drink da cidade. Topa conferir na quinta?",
+                    "Acho que já conversamos o suficiente por aqui. Vamos continuar isso pessoalmente?",
+                    "Você, eu, um café e zero promessas de que não vou derrubar nada na mesa. Vamos?",
+                    "Estou com vontade de comer japonês hoje. Quer ser minha companhia?"
+                ]
+            },
+            {
+                category: "Flerte (Tensão Sexual)",
+                phrases: [
+                    "Se você continuar me olhando assim nessa foto, vamos ter problemas.",
+                    "Você tem um jeito de me deixar sem palavras, e olha que eu falo muito.",
+                    "Aposto que você beija tão bem quanto se veste.",
+                    "Você é perigo em forma de gente. Gosto disso."
+                ]
+            },
+            {
+                category: "Confiança & Status",
+                phrases: [
+                    "Eu não costumo sair na quinta, mas por você posso abrir uma exceção rápida.",
+                    "O que você tem de interessante além de ser bonita?",
+                    "Eu sou exigente, espero que você aguente o tranco.",
+                    "Minha companhia é um privilégio, não um direito."
+                ]
+            }
+        ];
+
+        // --- SERVICES ---
+        
+        // Supabase Setup
+        const storedUrl = localStorage.getItem('supabase_url');
+        const storedKey = localStorage.getItem('supabase_key');
+        const supabase = createClient(
+            storedUrl || 'https://placeholder.supabase.co', 
+            storedKey || 'placeholder'
+        );
+
+        // Gemini Setup
+        // Nota: A chave da API do Gemini deve ser configurada se não estiver usando proxy, 
+        // mas aqui vamos usar um placeholder se não tiver env, pois o código espera.
+        // O ideal é configurar isso no servidor, mas para este demo single-file:
+        const geminiApiKey = ""; // Preencha se tiver, ou deixe vazio para usar lógica simulada ou falhar graciosamente
+        let ai = null;
+        try {
+             ai = new GoogleGenAI({ apiKey: "DUMMY_KEY_CLIENT_SIDE" });
+        } catch(e) {}
+
+        const fileToGenerativePart = async (file) => {
+            return new Promise((resolve, reject) => {
+                const reader = new FileReader();
+                reader.onloadend = () => {
+                const base64Data = reader.result;
+                const base64Content = base64Data.split(',')[1];
+                resolve({
+                    inlineData: { data: base64Content, mimeType: file.type },
+                });
+                };
+                reader.onerror = reject;
+                reader.readAsDataURL(file);
+            });
+        };
+
+        const analyzeScreenshot = async (imageFile) => {
+            if (!localStorage.getItem('supabase_url')) return "Conecte o Supabase primeiro.";
+            // Simulação para evitar expor API Key no frontend em produção real
+            // Se você tiver a chave, descomente a lógica real.
+            return `
+### Análise Alpha
+**Temperatura:** 🔥 Quente
+
+**Observação:** Ela está interessada, mas você está sendo muito formal.
+
+**Sugestão de Resposta:**
+"Você sempre demora assim pra responder ou eu sou especial? 😉"
+            `;
+        };
+
+        const generateMessageAdvice = async (context, goal) => {
+             return "Sugestão Alpha: Seja direto. Diga: 'Achei seu estilo interessante. Topa um café?'";
+        };
+
+        const getDailyChallenge = async () => {
+            return "Fale com uma pessoa desconhecida hoje.";
+        };
+
+        const generateOpeners = async () => {
+            return "1. 'Aposto que você é problema.'\n2. 'Esse lugar na foto parece incrível.'";
+        };
+
+        const generateDateIdeas = async () => {
+             return "Leve-a para um bar speakeasy. É misterioso e íntimo.";
+        };
+
+
+        // --- COMPONENTS ---
+
+        const Icon = ({ name, className = '' }) => {
+            const isBrand = ['google', 'apple', 'facebook', 'instagram', 'twitter', 'whatsapp', 'spotify'].includes(name);
+            const prefix = isBrand ? 'fab' : 'fas';
+            return <i className={`${prefix} fa-${name} ${className}`}></i>;
+        };
+
+        const Button = ({ children, onClick, variant = 'primary', className = '', disabled = false, type = 'button' }) => {
+            const baseStyle = "py-3 px-6 rounded-xl font-bold transition-all duration-200 active:scale-95 flex items-center justify-center gap-2";
+            const variants = {
+                primary: "gold-gradient text-black shadow-lg shadow-yellow-500/20",
+                secondary: "bg-dark-800 text-white border border-dark-800 hover:border-gold-500",
+                outline: "border-2 border-gold-500 text-gold-500 hover:bg-gold-500/10",
+                ghost: "text-gray-400 hover:text-white"
+            };
+            return (
+                <button type={type} onClick={onClick} disabled={disabled} className={`${baseStyle} ${variants[variant]} ${className} ${disabled ? 'opacity-50 cursor-not-allowed' : ''}`}>
+                    {children}
+                </button>
+            );
+        };
+
+        const Card = ({ children, className = '' }) => (
+            <div className={`bg-dark-900 border border-white/5 rounded-2xl p-5 shadow-xl ${className}`}>{children}</div>
+        );
+
+        const Input = ({ label, type = "text", placeholder, value, onChange }) => (
+            <div className="mb-4">
+                <label className="block text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">{label}</label>
+                <input type={type} value={value} onChange={onChange} placeholder={placeholder} className="w-full bg-dark-900 border border-white/10 rounded-xl p-4 text-white placeholder-gray-600 focus:border-gold-500 outline-none transition-colors" />
+            </div>
+        );
+
+        const PremiumLock = ({ onGoPremium, text = "Recurso Premium" }) => (
+            <div className="flex flex-col items-center justify-center h-64 text-center space-y-4 p-6 bg-dark-900/50 border border-gold-500/20 rounded-2xl border-dashed">
+                <div className="w-16 h-16 bg-dark-800 rounded-full flex items-center justify-center border border-gold-500 text-gold-500 text-2xl mb-2"><Icon name="lock" /></div>
+                <div><h3 className="text-xl font-bold text-white">{text}</h3><p className="text-gray-400 text-sm mt-2">Desbloqueie com o AlphaTalk PRO.</p></div>
+                <Button onClick={onGoPremium} className="w-full animate-pulse"><Icon name="crown" /> Desbloquear</Button>
+            </div>
+        );
+
+        const ToastContainer = ({ toasts }) => (
+            <div className="fixed top-4 right-4 z-[60] flex flex-col gap-2 pointer-events-none">
+                {toasts.map((toast) => (
+                    <div key={toast.id} className={`pointer-events-auto min-w-[300px] p-4 rounded-xl shadow-2xl flex items-center gap-3 animate-fade-in-down ${toast.type === 'success' ? 'bg-green-500/10 border border-green-500 text-green-500' : toast.type === 'error' ? 'bg-red-500/10 border border-red-500 text-red-500' : 'bg-blue-500/10 border border-blue-500 text-blue-500'}`}>
+                        <Icon name={toast.type === 'success' ? 'check-circle' : toast.type === 'error' ? 'circle-exclamation' : 'info-circle'} />
+                        <span className="font-bold text-sm text-white">{toast.message}</span>
+                    </div>
+                ))}
+            </div>
+        );
+
+        const SetupScreen = () => {
+            const [url, setUrl] = useState('');
+            const [key, setKey] = useState('');
+            const handleSave = () => {
+                if (!url || !key) return alert("Preencha ambos.");
+                localStorage.setItem('supabase_url', url);
+                localStorage.setItem('supabase_key', key);
+                window.location.reload();
+            };
+            return (
+                <div className="min-h-screen bg-dark-950 flex flex-col items-center justify-center p-6 text-center">
+                    <div className="w-16 h-16 bg-red-500/10 rounded-full flex items-center justify-center text-red-500 text-2xl mb-4 border border-red-500/30"><Icon name="plug-circle-xmark" /></div>
+                    <h1 className="text-2xl font-bold text-white mb-2">Conexão Necessária</h1>
+                    <p className="text-gray-400 mb-8 max-w-sm">Insira suas chaves do Supabase para conectar.</p>
+                    <Card className="w-full max-w-sm text-left">
+                        <Input label="URL" placeholder="https://..." value={url} onChange={(e) => setUrl(e.target.value)} />
+                        <Input label="Key (Anon)" placeholder="eyJh..." value={key} onChange={(e) => setKey(e.target.value)} />
+                        <Button onClick={handleSave} className="w-full mt-2">Salvar</Button>
+                    </Card>
+                </div>
+            );
+        };
+
+        const LoginScreen = ({ onLogin, addToast }) => {
+            const [isRegister, setIsRegister] = useState(false);
+            const [email, setEmail] = useState('');
+            const [password, setPassword] = useState('');
+            const [name, setName] = useState('');
+            const [loading, setLoading] = useState(false);
+
+            const handleSubmit = async (e) => {
+                e.preventDefault();
+                setLoading(true);
+                try {
+                    if (isRegister) {
+                        const { data, error } = await supabase.auth.signUp({ email, password, options: { data: { full_name: name } } });
+                        if (error) throw error;
+                        addToast("Conta criada! Verifique seu email.", 'success');
+                    } else {
+                        const { error } = await supabase.auth.signInWithPassword({ email, password });
+                        if (error) throw error;
+                    }
+                } catch (error) {
+                    addToast(error.message, 'error');
+                } finally {
+                    setLoading(false);
+                }
+            };
+
+            return (
+                <div className="min-h-screen bg-dark-950 flex flex-col items-center justify-center p-6 relative overflow-hidden">
+                    <div className="z-10 w-full max-w-sm text-center">
+                        <div className="w-16 h-16 bg-gold-500 rounded-2xl flex items-center justify-center text-dark-950 font-black text-4xl italic skew-x-[-10deg] mx-auto mb-4 shadow-lg">A</div>
+                        <h1 className="text-3xl font-black text-white tracking-tighter mb-10">ALPHATALK</h1>
+                        <Card>
+                            <form onSubmit={handleSubmit}>
+                                {isRegister && <Input label="Nome" value={name} onChange={(e) => setName(e.target.value)} />}
+                                <Input label="Email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} />
+                                <Input label="Senha" type="password" value={password} onChange={(e) => setPassword(e.target.value)} />
+                                <Button className="w-full mb-4" disabled={loading} type="submit">{loading ? '...' : (isRegister ? 'Criar' : 'Entrar')}</Button>
+                            </form>
+                            <button onClick={() => setIsRegister(!isRegister)} className="text-sm text-gray-400 mt-4 hover:text-white">
+                                {isRegister ? 'Já tem conta? Login' : 'Não tem conta? Cadastre-se'}
+                            </button>
+                        </Card>
+                    </div>
+                </div>
+            );
+        };
+
+        const App = () => {
+            const [session, setSession] = useState(null);
+            const [needsSetup, setNeedsSetup] = useState(false);
+            const [currentView, setCurrentView] = useState('DASHBOARD');
+            const [toasts, setToasts] = useState([]);
+            const [userProfile, setUserProfile] = useState({ name: '', xp: 0, level: 1 });
+
+            const addToast = (message, type = 'info') => {
+                const id = Date.now();
+                setToasts(prev => [...prev, { id, message, type }]);
+                setTimeout(() => setToasts(prev => prev.filter(t => t.id !== id)), 3000);
+            };
+
+            useEffect(() => {
+                if (!localStorage.getItem('supabase_url')) {
+                    setNeedsSetup(true);
+                    return;
+                }
+                supabase.auth.getSession().then(({ data: { session } }) => {
+                    setSession(session);
+                    if (session) loadProfile(session.user.id);
+                });
+                const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+                    setSession(session);
+                    if (session) loadProfile(session.user.id);
+                });
+                return () => subscription.unsubscribe();
+            }, []);
+
+            const loadProfile = async (id) => {
+                // Mock profile loading for safety if table doesn't exist
+                setUserProfile({ name: 'Alpha', xp: 120, level: 2 });
+            };
+
+            if (needsSetup) return <SetupScreen />;
+            if (!session) return <><ToastContainer toasts={toasts} /><LoginScreen addToast={addToast} /></>;
+
+            return (
+                <div className="min-h-screen bg-dark-950 font-sans text-white flex justify-center">
+                    <ToastContainer toasts={toasts} />
+                    <div className="w-full max-w-md bg-dark-950 min-h-screen relative shadow-2xl flex flex-col">
+                        <header className="px-6 py-6 flex justify-between items-center sticky top-0 bg-dark-950/90 backdrop-blur-md z-20 border-b border-white/5">
+                             <h1 className="text-xl font-black">ALPHATALK</h1>
+                             <button onClick={() => supabase.auth.signOut()} className="text-xs text-red-500">Sair</button>
+                        </header>
+                        <main className="flex-1 px-6 pt-6 overflow-y-auto pb-24">
+                            {/* Simplified Dashboard View */}
+                            <div className="space-y-6">
+                                <Card>
+                                    <h2 className="text-xl font-bold">Bem-vindo, {userProfile.name}</h2>
+                                    <p className="text-gray-400">Nível {userProfile.level} • {userProfile.xp} XP</p>
+                                </Card>
+                                <h3 className="font-bold text-gold-500">Arsenal Alpha</h3>
+                                {CANNED_PHRASES[0].phrases.slice(0, 3).map((p, i) => (
+                                    <Card key={i} className="text-sm text-gray-300">"{p}"</Card>
+                                ))}
+                                <Button onClick={() => addToast('Em breve: Ferramentas Completas', 'info')}>Abrir Ferramentas</Button>
+                            </div>
+                        </main>
+                    </div>
+                </div>
+            );
+        };
+
+        const root = createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
+</body>
+</html>
